@@ -33,8 +33,12 @@ build:
 		echo "CUDA not found - GPU version will not be available"; \
 		echo "  (To enable CUDA: module load cudatoolkit)"; \
 	fi
+	@echo "Setting up library paths..."
 	@mkdir -p build
-	@cd build && cmake .. && make
+	@(cd build && \
+		export LD_LIBRARY_PATH="/usr/lib64/nagios/plugins/python3/lib:$$LD_LIBRARY_PATH" && \
+		cmake .. && \
+		LD_LIBRARY_PATH="/usr/lib64/nagios/plugins/python3/lib:$$LD_LIBRARY_PATH" $(MAKE))
 	@echo "Build complete! Executable: build/kmeans_segmentation"
 
 # Clean build files
@@ -79,10 +83,16 @@ help:
 
 # Example run targets (adjust image path as needed)
 run-cpu:
-	@./build/kmeans_segmentation cat1.png 5 rgb --version cpu
+	@./build/kmeans_segmentation cat1.png 5 rgb --version cpu --output output_cat1_cpu.png
 
 run-omp:
-	@./build/kmeans_segmentation cat1.png 5 rgb --version omp --threads 4
+	@./build/kmeans_segmentation cat1.png 5 rgb --version omp --threads 4 --output output_cat1_omp.png
+
+run-cuda:
+	@./build/kmeans_segmentation cat1.png 5 rgb --version cuda --output output_cat1_gpu.png
+
+run-all:
+	@./run_all_versions.sh
 
 run-benchmark:
 	@./build/kmeans_segmentation cat1.png 5 rgb --version benchmark

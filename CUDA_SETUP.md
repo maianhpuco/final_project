@@ -25,8 +25,6 @@ make build
 ```
 
 Look for this message in the output:
-- ✅ "CUDA found - GPU version enabled" = Success!
-- ❌ "CUDA not found" = CUDA module not loaded properly
 
 ### Step 4: Verify CUDA Version is Available
 ```bash
