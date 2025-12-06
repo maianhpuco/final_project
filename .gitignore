@@ -1,0 +1,14 @@
+build/
+*.o
+*.a
+*.so
+*.dylib
+*.exe
+kmeans_segmentation
+output_*.png
+output_*.jpg
+.DS_Store
+*.swp
+*.swo
+*~
+
