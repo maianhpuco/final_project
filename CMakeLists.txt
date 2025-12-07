@@ -33,10 +33,10 @@ add_executable(kmeans_segmentation
 
 # Add CUDA source if CUDA compiler is available
 if(CMAKE_CUDA_COMPILER)
-    target_sources(kmeans_segmentation PRIVATE src/kmeans_cuda.cu)
+    target_sources(kmeans_segmentation PRIVATE src/kmeans_cuda.cu src/kmeans_cuda_shared.cu)
     set_property(TARGET kmeans_segmentation PROPERTY CUDA_SEPARABLE_COMPILATION ON)
     target_compile_definitions(kmeans_segmentation PRIVATE CUDA_AVAILABLE=1)
-    message(STATUS "CUDA found - GPU version enabled")
+    message(STATUS "CUDA found - GPU version enabled (global and shared memory)")
 else()
     target_compile_definitions(kmeans_segmentation PRIVATE CUDA_AVAILABLE=0)
     message(STATUS "CUDA not found - GPU version will not be available")

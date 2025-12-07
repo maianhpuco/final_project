@@ -15,16 +15,17 @@
 
 #if CUDA_AVAILABLE
 #include "kmeans_cuda.h"
+#include "kmeans_cuda_shared.h"
 #endif
 
 void printUsage(const char* programName) {
     std::cout << "Usage: " << programName << " <image_path> <k> <color_space> [options]\n";
-    std::cout << "  k: number of clusters (3-12)\n";
+    std::cout << "  k: number of clusters (3-100)\n";
     std::cout << "  color_space: 'rgb' or 'lab'\n";
     std::cout << "\nOptions:\n";
     std::cout << "  --version <cpu|omp";
     if (CUDA_AVAILABLE) {
-        std::cout << "|cuda";
+        std::cout << "|cuda|cuda_shared";
     }
     std::cout << "|benchmark>  : Choose implementation (default: cpu)\n";
     std::cout << "  --output <path>                : Output file (default: output_segmented.png)\n";
@@ -34,6 +35,7 @@ void printUsage(const char* programName) {
     std::cout << "  " << programName << " image.png 5 rgb --version omp --threads 4\n";
     if (CUDA_AVAILABLE) {
         std::cout << "  " << programName << " image.png 5 rgb --version cuda\n";
+        std::cout << "  " << programName << " image.png 5 rgb --version cuda_shared\n";
     }
     std::cout << "  " << programName << " image.png 5 rgb --version benchmark\n";
 }
@@ -82,22 +84,22 @@ int main(int argc, char* argv[]) {
         }
     }
     
-    if (k < 3 || k > 12) {
-        std::cerr << "Error: k must be between 3 and 12" << std::endl;
+    if (k < 3 || k > 100) {
+        std::cerr << "Error: k must be between 3 and 100" << std::endl;
         return 1;
     }
     
     // Validate version
-    if (version == "cuda" && !CUDA_AVAILABLE) {
+    if ((version == "cuda" || version == "cuda_shared") && !CUDA_AVAILABLE) {
         std::cerr << "Error: CUDA version is not available (CUDA not found during compilation)" << std::endl;
         return 1;
     }
     
     if (version != "cpu" && version != "omp" && version != "benchmark" && 
-        version != "cuda") {
+        version != "cuda" && version != "cuda_shared") {
         std::cerr << "Error: version must be one of: cpu, omp";
         if (CUDA_AVAILABLE) {
-            std::cerr << ", cuda";
+            std::cerr << ", cuda, cuda_shared";
         }
         std::cerr << ", benchmark" << std::endl;
         return 1;
@@ -211,9 +213,11 @@ int main(int argc, char* argv[]) {
         // Run CUDA version if available
         std::vector<double> cudaTimes;
         KMeansResult cudaResult;
+        std::vector<double> cudaSharedTimes;
+        KMeansResult cudaSharedResult;
 #if CUDA_AVAILABLE
         if (true) {
-            std::cout << "\nRunning CUDA GPU version (" << numRuns << " runs)..." << std::endl;
+            std::cout << "\nRunning CUDA GPU version (Global Memory) (" << numRuns << " runs)..." << std::endl;
             for (int run = 0; run < numRuns; run++) {
                 Timer runTimer;
                 cudaResult = KMeansCUDA::segment(image, k, colorSpace);
@@ -229,7 +233,7 @@ int main(int argc, char* argv[]) {
             double cudaMin = *std::min_element(cudaTimes.begin(), cudaTimes.end());
             double cudaMax = *std::max_element(cudaTimes.begin(), cudaTimes.end());
             
-            std::cout << "\nCUDA GPU:" << std::endl;
+            std::cout << "\nCUDA GPU (Global Memory):" << std::endl;
             std::cout << std::fixed << std::setprecision(2);
             std::cout << "  Average: " << cudaAvg << " ms" << std::endl;
             std::cout << "  Min:     " << cudaMin << " ms" << std::endl;
@@ -248,6 +252,44 @@ int main(int argc, char* argv[]) {
             } else {
                 std::cout << "  ⚠ CUDA results differ from CPU" << std::endl;
             }
+            
+            // Run CUDA Shared Memory version
+            std::cout << "\nRunning CUDA GPU version (Shared Memory) (" << numRuns << " runs)..." << std::endl;
+            for (int run = 0; run < numRuns; run++) {
+                Timer runTimer;
+                cudaSharedResult = KMeansCUDAShared::segment(image, k, colorSpace);
+                double time = runTimer.elapsedMs();
+                cudaSharedTimes.push_back(time);
+                std::cout << "  Run " << (run + 1) << ": " << std::fixed << std::setprecision(2) 
+                          << time << " ms" << std::endl;
+            }
+            
+            double cudaSharedAvg = 0.0;
+            for (double t : cudaSharedTimes) cudaSharedAvg += t;
+            cudaSharedAvg /= numRuns;
+            double cudaSharedMin = *std::min_element(cudaSharedTimes.begin(), cudaSharedTimes.end());
+            double cudaSharedMax = *std::max_element(cudaSharedTimes.begin(), cudaSharedTimes.end());
+            
+            std::cout << "\nCUDA GPU (Shared Memory):" << std::endl;
+            std::cout << std::fixed << std::setprecision(2);
+            std::cout << "  Average: " << cudaSharedAvg << " ms" << std::endl;
+            std::cout << "  Min:     " << cudaSharedMin << " ms" << std::endl;
+            std::cout << "  Max:     " << cudaSharedMax << " ms" << std::endl;
+            std::cout << "  Iterations: " << cudaSharedResult.iterations << std::endl;
+            std::cout << "  Final error: " << std::scientific << std::setprecision(6) 
+                      << cudaSharedResult.finalError << std::endl;
+            
+            double speedupCudaShared = cpuAvg / cudaSharedAvg;
+            std::cout << "\n  Speedup vs CPU: " << speedupCudaShared << "x" << std::endl;
+            std::cout << "  Speedup vs OMP: " << (ompAvg / cudaSharedAvg) << "x" << std::endl;
+            std::cout << "  Speedup vs CUDA Global: " << (cudaAvg / cudaSharedAvg) << "x" << std::endl;
+            
+            // Verify CUDA Shared results
+            if (compareResults(cpuResult, cudaSharedResult)) {
+                std::cout << "  ✓ CUDA Shared results match CPU (within tolerance)" << std::endl;
+            } else {
+                std::cout << "  ⚠ CUDA Shared results differ from CPU" << std::endl;
+            }
         }
 #else
         // CUDA not available
@@ -256,10 +298,12 @@ int main(int argc, char* argv[]) {
         }
 #endif
         
-        // Save the best result (CUDA if available, otherwise OMP)
+        // Save the best result (CUDA Shared if available, then CUDA Global, then OMP)
 #if CUDA_AVAILABLE
-        KMeansResult& bestResult = (!cudaTimes.empty()) ? cudaResult : ompResult;
-        std::string bestVersion = (!cudaTimes.empty()) ? "CUDA" : "OpenMP";
+        KMeansResult& bestResult = (!cudaSharedTimes.empty()) ? cudaSharedResult : 
+                                   (!cudaTimes.empty()) ? cudaResult : ompResult;
+        std::string bestVersion = (!cudaSharedTimes.empty()) ? "CUDA Shared" : 
+                                  (!cudaTimes.empty()) ? "CUDA Global" : "OpenMP";
 #else
         KMeansResult& bestResult = ompResult;
         std::string bestVersion = "OpenMP";
@@ -349,14 +393,51 @@ int main(int argc, char* argv[]) {
         }
 #if CUDA_AVAILABLE
     } else if (version == "cuda") {
-        // Run CUDA version
+        // Run CUDA version (global memory)
         Timer totalTimer;
         KMeansResult result = KMeansCUDA::segment(image, k, colorSpace);
         
         std::cout << "\n=== Results ===" << std::endl;
         std::cout << "Iterations: " << result.iterations << std::endl;
         std::cout << "Final error: " << result.finalError << std::endl;
-        std::cout << "Runtime (CUDA GPU): " << std::fixed << std::setprecision(2) 
+        std::cout << "Runtime (CUDA GPU - Global Memory): " << std::fixed << std::setprecision(2) 
+                  << result.runtimeMs << " ms" << std::endl;
+        std::cout << "Total time: " << totalTimer.elapsedMs() << " ms" << std::endl;
+        
+        // Save segmented image
+        std::cout << "\nSaving segmented image to: " << outputPath << std::endl;
+        if (ImageLoader::saveImage(result.segmentedImage, outputPath)) {
+            std::cout << "Successfully saved segmented image!" << std::endl;
+        } else {
+            std::cerr << "Failed to save segmented image" << std::endl;
+            return 1;
+        }
+        
+        // Print centroids
+        std::cout << "\nFinal centroids:" << std::endl;
+        for (size_t i = 0; i < result.centroids.size(); i++) {
+            if (colorSpace == ColorSpace::RGB) {
+                std::cout << "  Cluster " << i << ": RGB(" 
+                          << (int)result.centroids[i][0] << ", "
+                          << (int)result.centroids[i][1] << ", "
+                          << (int)result.centroids[i][2] << ")" << std::endl;
+            } else {
+                std::cout << "  Cluster " << i << ": Lab(" 
+                          << std::fixed << std::setprecision(2)
+                          << result.centroids[i][0] << ", "
+                          << result.centroids[i][1] << ", "
+                          << result.centroids[i][2] << ")" << std::endl;
+            }
+        }
+    } else if (version == "cuda_shared") {
+        // Run CUDA version (shared memory)
+        Timer totalTimer;
+        KMeansResult result = KMeansCUDAShared::segment(image, k, colorSpace);
+        
+        std::cout << "\n=== Results ===" << std::endl;
+        std::cout << "Iterations: " << result.iterations << std::endl;
+        std::cout << "Final error: " << result.finalError << std::endl;
+        std::cout << "Runtime (CUDA GPU - Shared Memory): " << std::fixed << std::setprecision(2) 
                   << result.runtimeMs << " ms" << std::endl;
         std::cout << "Total time: " << totalTimer.elapsedMs() << " ms" << std::endl;
         
